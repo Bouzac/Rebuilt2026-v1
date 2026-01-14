@@ -47,9 +47,9 @@ public class GyroIO {
      *
      * @return yaw en degrés (simulé si pas de capteur réel)
      */
-    public double getYaw() {
+    public double getAngle() {
         if (m_realGyro != null) {
-            return -m_realGyro.getYaw();
+            return m_realGyro.getYaw();
         }
         return m_simYaw;
     }

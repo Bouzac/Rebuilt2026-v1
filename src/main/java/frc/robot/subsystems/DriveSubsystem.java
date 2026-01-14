@@ -1,10 +1,15 @@
-// Copyright (c) FIRST and other WPILib contributors.
-// Open Source Software; you can modify and/or share it under the terms of
-// the WPILib BSD license file in the root directory of this project.
-
 package frc.robot.subsystems;
 
+import java.io.IOException;
 import java.util.Optional;
+
+import org.json.simple.parser.ParseException;
+
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.config.PIDConstants;
+import com.pathplanner.lib.config.RobotConfig;
+import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.path.PathConstraints;
 
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
@@ -18,8 +23,10 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.math.controller.PIDController;
+import frc.robot.Constants.AutoConstants;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.LimelightHelpers;
 
@@ -91,6 +98,33 @@ public class DriveSubsystem extends SubsystemBase {
 
 		// Register field on SmartDashboard
 		SmartDashboard.putData("Field", field2d);
+
+		RobotConfig config;
+		try {
+			config = RobotConfig.fromGUISettings();
+		} catch (IOException | ParseException e) {
+			throw new RuntimeException("Failed to load RobotConfig from GUI settings", e);
+		}
+
+		AutoBuilder.configure(
+            this::getPose,
+            this::resetPose,
+            this::getRobotRelativeSpeeds,
+            (speeds, feedforwards) -> conduireChassis(speeds),
+            new PPHolonomicDriveController(
+                    new PIDConstants(1.5, 0.0, 0.0),
+                    new PIDConstants(3.5, 0.0, 0.1)
+            ),
+            config,
+            () -> {
+                var alliance = DriverStation.getAlliance();
+                if (alliance.isPresent()) {
+                    return alliance.get() == DriverStation.Alliance.Red;
+                }
+                return false;
+            },
+            this
+    );
 	}
 
 	@Override
@@ -235,7 +269,7 @@ public class DriveSubsystem extends SubsystemBase {
 
 	public double getAngle() {
 		// Retourne l'angle en degrés (convention négative pour ce projet)
-		return -m_gyro.getYaw();
+		return m_gyro.getAngle();
 	}
 
 	public double getRate() {
@@ -250,15 +284,16 @@ public class DriveSubsystem extends SubsystemBase {
 
 	public ChassisSpeeds getRobotRelativeSpeeds() {
 		return DriveConstants.kDriveKinematics.toChassisSpeeds(
-				avantDroite.getState(),
 				avantGauche.getState(),
-				arriereDroite.getState(),
-				arriereGauche.getState());
+				avantDroite.getState(),
+				arriereGauche.getState(),
+				arriereDroite.getState());
 	}
 
 	public void conduireChassis(ChassisSpeeds chassisSpeeds) {
 		// Discrétiser pour cadence de 20 ms (contrôleurs périodiques)
-		ChassisSpeeds target = ChassisSpeeds.discretize(chassisSpeeds, 0.02);
+		// ChassisSpeeds target = ChassisSpeeds.discretize(chassisSpeeds, 0.02);
+		ChassisSpeeds target = chassisSpeeds;
 		SwerveModuleState[] states = DriveConstants.kDriveKinematics.toSwerveModuleStates(target);
 		setModuleStates(states);
 	}
@@ -294,9 +329,23 @@ public class DriveSubsystem extends SubsystemBase {
         // Mise à jour via le Wrapper
         // On récupère l'ancien angle simulé via getAngle(), on ajoute le delta
         // Attention aux signes : getAngle() retourne déjà l'inverse (-yaw) dans ta logique
-        double currentSimAngle = m_gyro.getYaw(); 
+        double currentSimAngle = m_gyro.getAngle(); 
         
         // Logique simplifiée pour la sim :
         m_gyro.setSimYaw(currentSimAngle + angleChange); // ou -angleChange selon ta convention CCW/CW
     }
+
+	public Command driveToPoseCommand(Pose2d targetPose) {
+		PathConstraints constraints = new PathConstraints(
+				AutoConstants.kMaxSpeedMetersPerSecond, 
+				AutoConstants.kMaxAccelerationMetersPerSecondSquared, 
+				Units.degreesToRadians(540), 
+				Units.degreesToRadians(720));
+
+		return AutoBuilder.pathfindToPose(
+				targetPose,
+				constraints,
+				0.0 
+		);
+	}
 }

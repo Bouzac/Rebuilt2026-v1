@@ -13,6 +13,7 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.trajectory.Trajectory;
 import edu.wpi.first.math.trajectory.TrajectoryConfig;
 import edu.wpi.first.math.trajectory.TrajectoryGenerator;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.XboxController;
 import frc.robot.Constants.AutoConstants;
 import frc.robot.Constants.DriveConstants;
@@ -76,6 +77,8 @@ public class RobotContainer {
         return true; // Command completes immediately after setting zero
       }
     });
+
+    new JoystickButton(m_driverController, 1).onTrue(m_robotDrive.driveToPoseCommand(new Pose2d(10.4, 3.8, new Rotation2d(Units.degreesToRadians(180)))));
   }
 
   /**
