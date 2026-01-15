@@ -5,126 +5,88 @@
 package frc.robot;
 
 import edu.wpi.first.math.MathUtil;
-import edu.wpi.first.math.controller.PIDController;
-import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
-import edu.wpi.first.math.trajectory.Trajectory;
-import edu.wpi.first.math.trajectory.TrajectoryConfig;
-import edu.wpi.first.math.trajectory.TrajectoryGenerator;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.XboxController;
-import frc.robot.Constants.AutoConstants;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.OIConstants;
 import frc.robot.subsystems.DriveSubsystem;
-import edu.wpi.first.wpilibj2.command.Command;
+import frc.robot.commands.drive.DriveToPoseCommand;
+import frc.robot.commands.drive.TurnToAngleCommand;
 import edu.wpi.first.wpilibj2.command.RunCommand;
-import edu.wpi.first.wpilibj2.command.SwerveControllerCommand;
+import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.button.JoystickButton;
-import java.util.List;
 
-/*
- * This class is where the bulk of the robot should be declared.  Since Command-based is a
- * "declarative" paradigm, very little robot logic should actually be handled in the {@link Robot}
- * periodic methods (other than the scheduler calls).  Instead, the structure of the robot
- * (including subsystems, commands, and button mappings) should be declared here.
+/**
+ * Conteneur principal du robot.
+ * 
+ * Cette classe déclare les sous-systèmes, la configuration des commandes par défaut
+ * et les mappages des boutons. Les commentaires et noms sont en français pour
+ * clarifier l'intention.
  */
 public class RobotContainer {
-  // The robot's subsystems
+  // Sous-système du châssis (drive)
   private final DriveSubsystem m_robotDrive = new DriveSubsystem();
 
-  // The driver's controller
-  XboxController m_driverController = new XboxController(OIConstants.kDriverControllerPort);
+  // Manette du conducteur
+  private final XboxController m_driverController =
+      new XboxController(OIConstants.kDriverControllerPort);
 
   /**
-   * The container for the robot. Contains subsystems, OI devices, and commands.
+   * Constructeur : configure les bindings et la commande par défaut.
    */
   public RobotContainer() {
-    // Configure the button bindings
     configureButtonBindings();
+    configureDefaultCommands();
+  }
 
-    // Configure default commands
+  /**
+   * Définit la commande par défaut du châssis : lecture des axes de la manette
+   * et appel à la méthode "conduire" du sous-système.
+   */
+  private void configureDefaultCommands() {
+    // Lecture des axes, application d'un deadband, et mise à l'échelle par les constantes de vitesse.
+    // La méthode conduire(x, y, rot, fieldRelative, autreFlag) est appelée régulièrement.
     m_robotDrive.setDefaultCommand(
-            new RunCommand(
-                () -> m_robotDrive.conduire(
-                    -MathUtil.applyDeadband(m_driverController.getRawAxis(1) * DriveConstants.kVitesse, OIConstants.kDriveDeadband),
-                    -MathUtil.applyDeadband(m_driverController.getRawAxis(0) * DriveConstants.kVitesse, OIConstants.kDriveDeadband),
-                    -MathUtil.applyDeadband(-m_driverController.getRawAxis(4) * DriveConstants.kVitesseRotation, OIConstants.kDriveDeadband),
-                true, false),
+        new RunCommand(
+            () ->
+                m_robotDrive.conduire(
+                    -MathUtil.applyDeadband(
+                        m_driverController.getRawAxis(1) * DriveConstants.kVitesse,
+                        OIConstants.kDriveDeadband),
+                    -MathUtil.applyDeadband(
+                        m_driverController.getRawAxis(0) * DriveConstants.kVitesse,
+                        OIConstants.kDriveDeadband),
+                    -MathUtil.applyDeadband(
+                        -m_driverController.getRawAxis(4) * DriveConstants.kVitesseRotation,
+                        OIConstants.kDriveDeadband),
+                    true, // fieldRelative : true si contrôle relatif au terrain
+                    false
+                    ),
             m_robotDrive));
   }
 
   /**
-   * Use this method to define your button->command mappings. Buttons can be
-   * created by
-   * instantiating a {@link edu.wpi.first.wpilibj.GenericHID} or one of its
-   * subclasses ({@link
-   * edu.wpi.first.wpilibj.Joystick} or {@link XboxController}), and then calling
-   * passing it to a
-   * {@link JoystickButton}.
+   * Configure les mappages boutons -> commandes.
+   * - Bouton 8 : remettre l'odométrie / position zéro du châssis.
+   * - Bouton 1 : lancer la commande de déplacement vers une Pose fixe.
    */
   private void configureButtonBindings() {
-    new JoystickButton(m_driverController, 8).onTrue(new Command() {
-      @Override
-      public void initialize() {
-        m_robotDrive.setZeroPosition();
-      }
+    // Quand on appuie (onTrue) sur le bouton 8, exécuter instantanément setZeroPosition()
+    new JoystickButton(m_driverController, 8)
+        .onTrue(new InstantCommand(m_robotDrive::setZeroPosition, m_robotDrive));
 
-      @Override
-      public boolean isFinished() {
-        return true; // Command completes immediately after setting zero
-      }
-    });
+    // Bouton 1 lance la commande fournie par le sous-système pour aller à une pose précise.
+    Pose2d cible = new Pose2d(10.4, 3.8, new Rotation2d(Units.degreesToRadians(180)));
+    new JoystickButton(m_driverController, 1)
+        .whileTrue(new DriveToPoseCommand(cible));
 
-    new JoystickButton(m_driverController, 1).onTrue(m_robotDrive.driveToPoseCommand(new Pose2d(10.4, 3.8, new Rotation2d(Units.degreesToRadians(180)))));
-  }
-
-  /**
-   * Use this to pass the autonomous command to the main {@link Robot} class.
-   *
-   * @return the command to run in autonomous
-   */
-  public Command getAutonomousCommand() {
-    // Create config for trajectory
-    TrajectoryConfig config = new TrajectoryConfig(
-        AutoConstants.kMaxSpeedMetersPerSecond,
-        AutoConstants.kMaxAccelerationMetersPerSecondSquared)
-        // Add kinematics to ensure max speed is actually obeyed
-        .setKinematics(DriveConstants.kDriveKinematics);
-
-    // An example trajectory to follow. All units in meters.
-    Trajectory exampleTrajectory = TrajectoryGenerator.generateTrajectory(
-        // Start at the origin facing the +X direction
-        new Pose2d(0, 0, new Rotation2d(0)),
-        // Pass through these two interior waypoints, making an 's' curve path
-        List.of(new Translation2d(1, 1), new Translation2d(2, -1)),
-        // End 3 meters straight ahead of where we started, facing forward
-        new Pose2d(3, 0, new Rotation2d(0)),
-        config);
-
-    var thetaController = new ProfiledPIDController(
-        AutoConstants.kPThetaController, 0, 0, AutoConstants.kThetaControllerConstraints);
-    thetaController.enableContinuousInput(-Math.PI, Math.PI);
-
-    SwerveControllerCommand swerveControllerCommand = new SwerveControllerCommand(
-        exampleTrajectory,
-        m_robotDrive::getPose, // Functional interface to feed supplier
-        DriveConstants.kDriveKinematics,
-
-        // Position controllers
-        new PIDController(AutoConstants.kPXController, 0, 0),
-        new PIDController(AutoConstants.kPYController, 0, 0),
-        thetaController,
-        m_robotDrive::setModuleStates,
-        m_robotDrive);
-
-    // Reset odometry to the starting pose of the trajectory.
-    m_robotDrive.resetOdometry(exampleTrajectory.getInitialPose());
-
-    // Run path following command, then stop at the end.
-    return swerveControllerCommand.andThen(() -> m_robotDrive.conduire(0, 0, 0, false, false));
+    new JoystickButton(m_driverController, 2)
+        .whileTrue(
+            Commands.defer(
+                () -> new TurnToAngleCommand(m_robotDrive, m_robotDrive.getAngleToBasket()),
+                java.util.Set.of(m_robotDrive)));
   }
 }
-

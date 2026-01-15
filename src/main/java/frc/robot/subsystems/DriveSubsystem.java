@@ -10,7 +10,9 @@ import com.pathplanner.lib.config.PIDConstants;
 import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
 import com.pathplanner.lib.path.PathConstraints;
+import com.pathplanner.lib.util.PathPlannerLogging;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
@@ -24,6 +26,7 @@ import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.FunctionalCommand;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.math.controller.PIDController;
 import frc.robot.Constants.AutoConstants;
@@ -69,11 +72,11 @@ public class DriveSubsystem extends SubsystemBase {
 	// ----- Contrôleurs PID pour conduite vers une pose -----
 	private final PIDController xController = new PIDController(1.5, 0.0, 0.0); // m/s per m
 	private final PIDController yController = new PIDController(1.5, 0.0, 0.0); // m/s per m
-	private final PIDController thetaController = new PIDController(3.0, 0.0, 0.0); // deg/s per deg
+	private final PIDController thetaController = new PIDController(0.015, 0.0, 0.001); // deg/s per deg
 
 	// ----- Tolérances -----
 	private final double positionToleranceMeters = 0.05; // 5 cm
-	private final double angleToleranceDegrees = 3.0; // 3 degrees
+	private final double angleToleranceDegrees = 0.5; // 0.01 degrees
 
 	public DriveSubsystem() {
 		// Initialisation des encodeurs / odométrie
@@ -113,7 +116,7 @@ public class DriveSubsystem extends SubsystemBase {
             (speeds, feedforwards) -> conduireChassis(speeds),
             new PPHolonomicDriveController(
                     new PIDConstants(1.5, 0.0, 0.0),
-                    new PIDConstants(3.5, 0.0, 0.1)
+                    new PIDConstants(6, 0.0, 0.05)
             ),
             config,
             () -> {
@@ -124,8 +127,12 @@ public class DriveSubsystem extends SubsystemBase {
                 return false;
             },
             this
-    );
-	}
+    	);
+
+		PathPlannerLogging.setLogActivePathCallback((poses) -> {
+			field2d.getObject("activePath").setPoses(poses);
+		});
+		}
 
 	@Override
 	public void periodic() {
@@ -268,8 +275,14 @@ public class DriveSubsystem extends SubsystemBase {
 	// ----- Gyro -----
 
 	public double getAngle() {
+		double normalizedAngle = (m_gyro.getAngle() + 180) % 360;
+
+		if (normalizedAngle <= 0) {
+			normalizedAngle += 360;
+		}
+
 		// Retourne l'angle en degrés (convention négative pour ce projet)
-		return m_gyro.getAngle();
+		return normalizedAngle - 180;
 	}
 
 	public double getRate() {
@@ -292,8 +305,7 @@ public class DriveSubsystem extends SubsystemBase {
 
 	public void conduireChassis(ChassisSpeeds chassisSpeeds) {
 		// Discrétiser pour cadence de 20 ms (contrôleurs périodiques)
-		// ChassisSpeeds target = ChassisSpeeds.discretize(chassisSpeeds, 0.02);
-		ChassisSpeeds target = chassisSpeeds;
+		ChassisSpeeds target = ChassisSpeeds.discretize(chassisSpeeds, 0.02);
 		SwerveModuleState[] states = DriveConstants.kDriveKinematics.toSwerveModuleStates(target);
 		setModuleStates(states);
 	}
@@ -347,5 +359,67 @@ public class DriveSubsystem extends SubsystemBase {
 				constraints,
 				0.0 
 		);
+	}
+	
+
+	public Rotation2d getAngleToBasket() {
+		double robotX = getPose().getX();
+		double robotY = getPose().getY();
+
+		double basketX; 
+		double basketY = 4.0; 
+
+		boolean isRed = isRedAlliance();
+		basketX = isRed ? 5.0 : 12.5;
+
+		boolean isOnGoodSide = false;
+		if (isRed) {
+			if (robotX < basketX - 0.2) isOnGoodSide = true;
+		} else {
+			if (robotX > basketX + 0.2) isOnGoodSide = true;
+		}
+
+		if (isOnGoodSide) {
+			double deltaX = basketX - robotX;
+			double deltaY = basketY - robotY;
+
+			double angleRad = Math.atan2(deltaY, deltaX);
+
+			return new Rotation2d(angleRad);
+		} else {
+			return getPose().getRotation();
+		}
+	}
+
+	public Command turnToAngleCommand(Rotation2d targetAngle) {
+		return new FunctionalCommand(
+			() -> {
+				thetaController.reset();
+				thetaController.setSetpoint(targetAngle.getDegrees());
+			},
+			() -> {
+				double currentAngle = getPose().getRotation().getDegrees();
+
+				double pidOutput = thetaController.calculate(currentAngle, targetAngle.getDegrees());
+
+				pidOutput += Math.signum(pidOutput) * 0.05; 
+
+				// Clamp critique : on force la valeur entre -0.5 et 0.5 (50% de Vmax)
+				// Cela empêche le robot de recevoir une demande de 400% de vitesse.
+				double rotationInput = MathUtil.clamp(pidOutput, -0.5, 0.5);
+
+				conduire(0, 0, rotationInput, false, false);
+			},
+			(interrupted) -> stop(),
+			() -> thetaController.atSetpoint(),
+			this
+		);
+	}
+
+	/**
+	 * Accès au contrôleur d'angle pour les commandes externes.
+	 */
+	public PIDController getThetaController() {
+		return thetaController;
 	}
 }
