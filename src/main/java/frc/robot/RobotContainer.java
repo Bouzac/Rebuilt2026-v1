@@ -5,19 +5,16 @@
 package frc.robot;
 
 import edu.wpi.first.math.MathUtil;
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.XboxController;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.OIConstants;
 import frc.robot.subsystems.DriveSubsystem;
-import frc.robot.commands.drive.DriveToPoseCommand;
 import frc.robot.commands.drive.TurnToAngleCommand;
 import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.button.JoystickButton;
+import edu.wpi.first.wpilibj2.command.button.Trigger;
 
 /**
  * Conteneur principal du robot.
@@ -78,15 +75,66 @@ public class RobotContainer {
     new JoystickButton(m_driverController, 8)
         .onTrue(new InstantCommand(m_robotDrive::setZeroPosition, m_robotDrive));
 
-    // Bouton 1 lance la commande fournie par le sous-système pour aller à une pose précise.
-    Pose2d cible = new Pose2d(10.4, 3.8, new Rotation2d(Units.degreesToRadians(180)));
-    new JoystickButton(m_driverController, 1)
-        .whileTrue(new DriveToPoseCommand(cible));
-
     new JoystickButton(m_driverController, 2)
         .whileTrue(
             Commands.defer(
                 () -> new TurnToAngleCommand(m_robotDrive, m_robotDrive.getAngleToBasket()),
                 java.util.Set.of(m_robotDrive)));
+
+    new Trigger(m_driverController::getLeftBumperButton)
+        .whileTrue(new RunCommand(
+            () ->
+                {
+                    // Vitesses demandées (field-relative)
+                    double vx = MathUtil.applyDeadband(
+                        m_driverController.getRawAxis(1) * DriveConstants.kVitesse,
+                        OIConstants.kDriveDeadband);
+                    double vy = MathUtil.applyDeadband(
+                        m_driverController.getRawAxis(0) * DriveConstants.kVitesse,
+                        OIConstants.kDriveDeadband);
+
+                    // Centre du panier selon l'alliance
+                    double basketY = 4.0;
+                    double basketX = m_robotDrive.isRedAlliance() ? 5.0 : 12.5;
+
+                    double px = m_robotDrive.getPose().getX();
+                    double py = m_robotDrive.getPose().getY();
+
+                    double dx = px - basketX;
+                    double dy = py - basketY;
+                    double dist = Math.hypot(dx, dy);
+                    if (dist < 1e-3) dist = 1e-3; // éviter division par zéro
+
+                    double nx = dx / dist;
+                    double ny = dy / dist;
+
+                    // Projection tangentielle : retirer la composante radiale
+                    double radial = vx * nx + vy * ny;
+                    double vxT = vx - radial * nx;
+                    double vyT = vy - radial * ny;
+
+                    // Correction douce pour rester à rayon 2 m
+                    double radiusError = dist - 5.0;
+                    double kR = 0.5; // gain radial
+                    double radialCorr = -kR * radiusError;
+
+                    double vxCmd = vxT + radialCorr * nx;
+                    double vyCmd = vyT + radialCorr * ny;
+
+                    // Clamp de sécurité
+                    vxCmd = MathUtil.clamp(vxCmd, -1.0, 1.0);
+                    vyCmd = MathUtil.clamp(vyCmd, -1.0, 1.0);
+
+                    double rotCmd = m_robotDrive.getCompensationRotation(m_robotDrive.getAngleToBasket().getDegrees());
+
+                    m_robotDrive.conduire(
+                        -vxCmd,
+                        -vyCmd,
+                        rotCmd,
+                        true, // fieldRelative : true si contrôle relatif au terrain
+                        false
+                        );
+                },
+            m_robotDrive));
   }
 }

@@ -391,6 +391,39 @@ public class DriveSubsystem extends SubsystemBase {
 		}
 	}
 
+	/**
+	 * Calcule une pose située à une distance donnée du panier, sur la ligne
+	 * panier -> robot, en orientant le robot vers le panier.
+	 * @param distanceMeters distance souhaitée entre le robot et le panier
+	 * @return Pose2d cible à cette distance, orientée vers le panier
+	 */
+	public Pose2d getPoseFacingBasketAtDistance(double distanceMeters) {
+		double robotX = getPose().getX();
+		double robotY = getPose().getY();
+
+		double basketX;
+		double basketY = 4.0;
+		boolean isRed = isRedAlliance();
+		basketX = isRed ? 5.0 : 12.5;
+
+		double dx = robotX - basketX;
+		double dy = robotY - basketY;
+		double currentDist = Math.hypot(dx, dy);
+
+		// Sécurité pour éviter division par zéro
+		if (currentDist < 1e-3) {
+			currentDist = 1e-3;
+		}
+
+		// Positionner le robot sur le cercle à distance demandée
+		double scale = distanceMeters / currentDist;
+		double targetX = basketX + dx * scale;
+		double targetY = basketY + dy * scale;
+
+		Rotation2d targetHeading = new Rotation2d(Math.atan2(basketY - targetY, basketX - targetX));
+		return new Pose2d(targetX, targetY, targetHeading);
+	}
+
 	public Command turnToAngleCommand(Rotation2d targetAngle) {
 		return new FunctionalCommand(
 			() -> {
@@ -416,10 +449,28 @@ public class DriveSubsystem extends SubsystemBase {
 		);
 	}
 
+	public double getCompensationRotation(Double targetAngleDegrees) {
+		double currentAngle = getPose().getRotation().getDegrees();
+
+		double pidOutput = thetaController.calculate(currentAngle, targetAngleDegrees);
+
+		pidOutput += Math.signum(pidOutput) * 0.05; 
+
+		// Clamp critique : on force la valeur entre -0.5 et 0.5 (50% de Vmax)
+		// Cela empêche le robot de recevoir une demande de 400% de vitesse.
+		double rotationInput = MathUtil.clamp(pidOutput, -0.5, 0.5);
+
+		return rotationInput;
+	}
+
 	/**
 	 * Accès au contrôleur d'angle pour les commandes externes.
 	 */
 	public PIDController getThetaController() {
 		return thetaController;
+	}
+
+	public PIDController getXController() {
+		return xController;
 	}
 }
