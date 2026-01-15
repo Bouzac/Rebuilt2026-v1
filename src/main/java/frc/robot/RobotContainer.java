@@ -6,6 +6,7 @@ package frc.robot;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.wpilibj.XboxController;
+import frc.robot.Constants.AutoConstants;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.OIConstants;
 import frc.robot.subsystems.DriveSubsystem;
@@ -97,6 +98,25 @@ public class RobotContainer {
                     double basketY = 4.0;
                     double basketX = m_robotDrive.isRedAlliance() ? 5.0 : 12.5;
 
+                    Boolean isOnGoodSide = m_robotDrive.isOnGoodSide();
+
+                    if (!isOnGoodSide) {
+                        m_robotDrive.conduire(
+                          -MathUtil.applyDeadband(
+                              m_driverController.getRawAxis(1) * DriveConstants.kVitesse,
+                              OIConstants.kDriveDeadband),
+                          -MathUtil.applyDeadband(
+                              m_driverController.getRawAxis(0) * DriveConstants.kVitesse,
+                              OIConstants.kDriveDeadband),
+                          -MathUtil.applyDeadband(
+                              -m_driverController.getRawAxis(4) * DriveConstants.kVitesseRotation,
+                              OIConstants.kDriveDeadband),
+                          true, // fieldRelative : true si contrôle relatif au terrain
+                          false
+                          );
+                      return;   
+                    }
+
                     double px = m_robotDrive.getPose().getX();
                     double py = m_robotDrive.getPose().getY();
 
@@ -114,7 +134,7 @@ public class RobotContainer {
                     double vyT = vy - radial * ny;
 
                     // Correction douce pour rester à rayon 2 m
-                    double radiusError = dist - 5.0;
+                    double radiusError = dist - 2.0;
                     double kR = 0.5; // gain radial
                     double radialCorr = -kR * radiusError;
 
@@ -122,8 +142,8 @@ public class RobotContainer {
                     double vyCmd = vyT + radialCorr * ny;
 
                     // Clamp de sécurité
-                    vxCmd = MathUtil.clamp(vxCmd, -1.0, 1.0);
-                    vyCmd = MathUtil.clamp(vyCmd, -1.0, 1.0);
+                    vxCmd = MathUtil.clamp(vxCmd, -DriveConstants.kVitesse, DriveConstants.kVitesse);
+                    vyCmd = MathUtil.clamp(vyCmd, -DriveConstants.kVitesse, DriveConstants.kVitesse);
 
                     double rotCmd = m_robotDrive.getCompensationRotation(m_robotDrive.getAngleToBasket().getDegrees());
 

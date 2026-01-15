@@ -391,6 +391,19 @@ public class DriveSubsystem extends SubsystemBase {
 		}
 	}
 
+	public boolean isOnGoodSide() {
+		double robotX = getPose().getX();
+
+		double basketX; 
+
+		boolean isRed = isRedAlliance();
+		basketX = isRed ? 5.0 : 12.5;
+
+		boolean isOnGoodSide = isRed ? (robotX < basketX - 0.2) : (robotX > basketX + 0.2);
+
+		return isOnGoodSide; 
+	}
+
 	/**
 	 * Calcule une pose située à une distance donnée du panier, sur la ligne
 	 * panier -> robot, en orientant le robot vers le panier.
@@ -422,31 +435,6 @@ public class DriveSubsystem extends SubsystemBase {
 
 		Rotation2d targetHeading = new Rotation2d(Math.atan2(basketY - targetY, basketX - targetX));
 		return new Pose2d(targetX, targetY, targetHeading);
-	}
-
-	public Command turnToAngleCommand(Rotation2d targetAngle) {
-		return new FunctionalCommand(
-			() -> {
-				thetaController.reset();
-				thetaController.setSetpoint(targetAngle.getDegrees());
-			},
-			() -> {
-				double currentAngle = getPose().getRotation().getDegrees();
-
-				double pidOutput = thetaController.calculate(currentAngle, targetAngle.getDegrees());
-
-				pidOutput += Math.signum(pidOutput) * 0.05; 
-
-				// Clamp critique : on force la valeur entre -0.5 et 0.5 (50% de Vmax)
-				// Cela empêche le robot de recevoir une demande de 400% de vitesse.
-				double rotationInput = MathUtil.clamp(pidOutput, -0.5, 0.5);
-
-				conduire(0, 0, rotationInput, false, false);
-			},
-			(interrupted) -> stop(),
-			() -> thetaController.atSetpoint(),
-			this
-		);
 	}
 
 	public double getCompensationRotation(Double targetAngleDegrees) {

@@ -51,7 +51,6 @@ public class RamasseurSubsystem extends SubsystemBase{
 
         exterieurConfig.signals
             .primaryEncoderVelocityPeriodMs(20);
-
         shaftInterieur.configure(interieurConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
         shaftExterieur.configure(exterieurConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
     }
